@@ -77,55 +77,58 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
             
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # The rashifal data is in a table structure
-            table = soup.select_one("table")
-            if not table:
-                logger.error("No table found in the page")
+            # Find all rashifal items in the div with id 'rashifal'
+            rashifal_div = soup.select_one("#rashifal")
+            if not rashifal_div:
+                logger.error("No rashifal div found in the page")
                 logger.debug(f"Page content: {response.text[:500]}...")
                 return []
                 
-            # Find all rows in the table
-            rashifal_rows = table.select("tr")
-            if not rashifal_rows:
-                logger.error("No rashifal rows found in the table")
+            # Find all item divs that contain rashifal data
+            rashifal_items = rashifal_div.select(".item")
+            if not rashifal_items:
+                logger.error("No rashifal items found in the div")
                 return []
                 
-            for row in rashifal_rows[1:]:  # Skip header row
+            for item in rashifal_items:  # Skip header row
                 try:
-                    # Extract data from table cells
-                    cells = row.select("td")
-                    if len(cells) < 2:
-                        logger.warning("Row has insufficient cells")
+                    # Extract the rashi name from h3 tag
+                    name_elem = item.select_one("h3")
+                    if not name_elem:
+                        logger.warning("No rashi name found in item")
                         continue
                         
-                    # First cell contains rashi name, second cell contains prediction
-                    name_elem = cells[0]
-                    prediction_elem = cells[1]
+                    # Extract prediction from the desc div's paragraph
+                    prediction_elem = item.select_one(".desc p")
+                    if not prediction_elem:
+                        logger.warning("No prediction found in item")
+                        continue
                     
                     if not all([name_elem, prediction_elem]):
                         logger.warning("Missing required elements in rashifal row")
                         continue
                         
-                    # The name cell contains both Nepali and English names
-                    name_text = name_elem.text.strip()
+                    # Get the Nepali name from h3
+                    nepali_name = name_elem.text.strip()
                     
-                    # Try to extract names using common patterns
+                    # Find the matching sign and English name
+                    sign = None
+                    english_name = None
                     for s, info in ZODIAC_SIGNS.items():
-                        if info['nepali'] in name_text:
-                            nepali_name = info['nepali']
-                            english_name = info['english']
+                        if info['nepali'] == nepali_name:
                             sign = s
+                            english_name = info['english']
                             break
-                    else:
-                        logger.warning(f"Could not identify rashi from: {name_text}")
+                            
+                    if not sign:
+                        logger.warning(f"Could not map rashifal name: {nepali_name}")
                         continue
                     
-                    # Get sign key from the Nepali name
-                    sign = None
-                    for s, info in ZODIAC_SIGNS.items():
-                        if info['nepali'] == nepali_name or info['english'].lower() == english_name.lower():
-                            sign = s
-                            break
+                    # Get prediction text
+                    prediction = prediction_elem.text.strip()
+                    
+                    # Use the predefined sign index
+                    sign_index = ZODIAC_SIGNS[sign]['index']
                     
                     if not sign:
                         logger.warning(f"Could not map rashifal name to sign: {name_text}")
@@ -152,9 +155,9 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
                         "nepali_name": nepali_name,
                         "english_name": english_name,
                         "sign_index": sign_index,
-                        "prediction_english": None,
-                        "lucky_number": None,
-                        "lucky_color": None
+                        "prediction_english": None,  # Not available on hamropatro
+                        "lucky_number": None,  # Not available on hamropatro
+                        "lucky_color": None  # Not available on hamropatro
                     }
                     
                     try:
