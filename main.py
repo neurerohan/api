@@ -80,6 +80,7 @@ async def run_initial_scraping():
         await scrape_vegetables(db)
         await scrape_metals(db)
         await scrape_forex(db)
+        await scrape_panchang(db)  # Add panchang scraping
         
         # For calendar and events, scrape current data
         from datetime import datetime
@@ -256,4 +257,10 @@ async def trigger_scrape(api_key: str = None):
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+    import os
+    
+    # Get port from environment variable for cloud deployment or use default
+    port = int(os.environ.get("PORT", 8000))
+    
+    # Ensure we bind to 0.0.0.0 so the app is accessible externally
+    uvicorn.run("main:app", host="0.0.0.0", port=port, reload=True)

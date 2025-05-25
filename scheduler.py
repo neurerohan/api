@@ -12,7 +12,8 @@ from scraping import (
     scrape_metals,
     scrape_forex,
     scrape_calendar,
-    scrape_events
+    scrape_events,
+    scrape_panchang
 )
 
 logger = logging.getLogger(__name__)
