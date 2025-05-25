@@ -123,10 +123,31 @@ class RashifalCRUD(CRUDBase[Rashifal]):
     
     def get_by_sign(self, db: Session, *, sign: str) -> Optional[Rashifal]:
         """Get latest rashifal by zodiac sign."""
-        statement = select(self.model).where(
-            self.model.sign == sign
-        ).order_by(self.model.updated_at.desc())
-        return db.exec(statement).first()
+        import logging
+        logger = logging.getLogger(__name__)
+        
+        try:
+            # Normalize the sign to lowercase
+            sign = sign.lower().strip()
+            
+            # Create the query statement
+            statement = select(self.model).where(
+                self.model.sign == sign
+            ).order_by(self.model.updated_at.desc())
+            
+            # Execute the query with error handling
+            try:
+                result = db.exec(statement).first()
+                return result
+            except Exception as e:
+                logger.error(f"Database error in get_by_sign: {str(e)}")
+                # Try with a fresh session if there's a connection issue
+                from database import get_db_context
+                with get_db_context() as fresh_db:
+                    return fresh_db.exec(statement).first()
+        except Exception as e:
+            logger.error(f"Error in get_by_sign for {sign}: {str(e)}")
+            return None
     
     def upsert(self, db: Session, *, obj_in: Dict[str, Any]) -> Rashifal:
         """Create or update a rashifal."""
