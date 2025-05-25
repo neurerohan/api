@@ -44,8 +44,7 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
     
     try:
         # Using ashesh.com.np as the source
-        # Use a more reliable widget URL
-        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=332257p096&header_size=20px&font_color=333333&font_size=14px&line_height=26px&font_family=arial"
+        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=522251p370"
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
@@ -53,13 +52,16 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
             
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Find all rashifal rows
-            rashifal_rows = soup.select(".row")
-            
-            # Extract date from the header
-            header_date = soup.select_one(".header_date iframe")
-            date_text = header_date["src"] if header_date else ""
-            # The date might be embedded in the iframe, we'll use today's date for simplicity
+            # Find all rashifal rows - they are inside both columns
+            columns = soup.select(".column")
+            if not columns:
+                logger.error("No columns found in the rashifal page")
+                return []
+                
+            rashifal_rows = []
+            for column in columns:
+                rows = column.select(".row")
+                rashifal_rows.extend(rows)
             
             for row in rashifal_rows:
                 try:
