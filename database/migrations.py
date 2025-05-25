@@ -42,6 +42,10 @@ def ensure_schema_up_to_date(database_url):
         # Check and add missing columns for each table
         add_missing_columns(cursor, 'calendarday', [
             ('nepali_weekday', 'TEXT'),
+            ('event', 'TEXT'),
+            ('tithi', 'TEXT'),
+            ('panchang', 'TEXT'),
+            ('is_holiday', 'INTEGER'),
         ])
         
         add_missing_columns(cursor, 'vegetableprice', [

@@ -1,1 +1,1 @@
-web: python render.py
+web: python direct_server.py

@@ -152,8 +152,8 @@ async def get_calendar(
 async def get_today_date(
     db: Session = Depends(get_session)
 ):
-    """Get today's Nepali date with detailed information."""
-    # Try to scrape today's information from Ashesh.com.np Panchang
+    from database.session import get_session, create_db_and_tables
+    # Use the existing get_session from our session module
     today_info = await scrape_panchang(db)
     
     if not today_info:
