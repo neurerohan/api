@@ -36,12 +36,24 @@ async def scrape_events(db: Session, year: int = None) -> List[Dict]:
             
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Find the events container (adjust selectors based on actual structure)
-            events_container = soup.select_one(".events-container, .events-list, .holidays-list")
+            # The site structure might have changed, let's try multiple selectors
+            # First, try the most common container selectors
+            events_container = soup.select_one(".events-container, .events-list, .holidays-list, .calendar-events")
             
+            # If not found, try getting the main content area
             if not events_container:
-                logger.warning("Could not find events container on the page")
+                events_container = soup.select_one(".main-content, .content-area, #content, main")
+            
+            # If still not found, use the body as fallback
+            if not events_container:
+                events_container = soup.body
+                
+            if not events_container:
+                logger.warning("Could not find any content on the page - site structure may have changed")
                 return []
+                
+            # Log for debugging
+            logger.info(f"Found events container with {len(events_container.select('*'))} child elements")
                 
             # Find all event items
             event_items = events_container.select(".event-item, .holiday-item, .festival-item")

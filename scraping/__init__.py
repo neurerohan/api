@@ -24,7 +24,15 @@ def with_db_session(func):
     async def wrapper(db, *args, **kwargs):
         # Check if db is already a valid session
         if isinstance(db, Session) and hasattr(db, 'exec'):
-            return await func(db, *args, **kwargs)
+            try:
+                return await func(db, *args, **kwargs)
+            except AttributeError as e:
+                if "'Session' object has no attribute 'connect'" in str(e):
+                    logger.warning(f"Session connection error in {func.__name__}, creating new session")
+                    with get_db_context() as session:
+                        return await func(session, *args, **kwargs)
+                else:
+                    raise
         
         # Otherwise, create a new session
         logger.info(f"Creating new database session for {func.__name__}")

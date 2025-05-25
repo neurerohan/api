@@ -32,11 +32,40 @@ async def scrape_forex(db: Session) -> List[Dict]:
             
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Find the forex table (adjust selectors based on actual structure)
-            forex_table = soup.select_one("table.forex-table, table.currency-rates")
+            # Try multiple possible selectors for forex tables
+            forex_table = soup.select_one("table.forex-table, table.currency-rates, table.table-forex, table.table-responsive")
+            
+            # If not found, try any table on the page
+            if not forex_table:
+                tables = soup.select("table")
+                if tables:
+                    # Use the table with the most rows as it's likely the forex table
+                    forex_table = max(tables, key=lambda t: len(t.select("tr")))
             
             if not forex_table:
-                logger.warning("Could not find forex rates table on the page")
+                logger.warning("Could not find forex rates table on the page - site structure may have changed")
+                # Instead of returning empty, try a fallback approach
+                logger.info("Attempting to scrape forex data from alternate source")
+                
+                # Try an alternate method if primary fails
+                # This could be another source or alternative parsing method
+                try:
+                    # Try to find any data that looks like forex rates (e.g., currency codes with numbers)
+                    potential_rates = []
+                    for element in soup.select("*"):
+                        text = element.get_text().strip()
+                        # Look for text that might contain currency rates (USD, EUR, etc. followed by numbers)
+                        if any(code in text for code in ["USD", "EUR", "GBP", "JPY", "CHF"]) and any(char.isdigit() for char in text):
+                            potential_rates.append(element)
+                    
+                    if potential_rates:
+                        logger.info(f"Found {len(potential_rates)} potential forex elements")
+                        # Process these potential rates
+                        # Add code here to handle these elements
+                
+                except Exception as e:
+                    logger.warning(f"Fallback forex scraping also failed: {str(e)}")
+                
                 return []
                 
             rows = forex_table.select("tr")

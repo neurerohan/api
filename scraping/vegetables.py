@@ -65,9 +65,16 @@ async def scrape_vegetables(db: Session) -> List[Dict]:
                         continue
                         
                     name = name_div.text.strip()
-                    min_price = float(min_div.text.strip())
-                    max_price = float(max_div.text.strip())
-                    avg_price = float(avg_div.text.strip())
+                    
+                    # Handle '--' values for prices
+                    min_price_text = min_div.text.strip()
+                    min_price = None if min_price_text == '--' else float(min_price_text)
+                    
+                    max_price_text = max_div.text.strip()
+                    max_price = None if max_price_text == '--' else float(max_price_text)
+                    
+                    avg_price_text = avg_div.text.strip()
+                    avg_price = None if avg_price_text == '--' else float(avg_price_text)
                     
                     # Extract image URL if available
                     image_url = None
