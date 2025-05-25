@@ -44,59 +44,63 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
     
     try:
         # Using ashesh.com.np as the source
-        # Use a more reliable widget URL
-        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=332257p096&header_size=20px&font_color=333333&font_size=14px&line_height=26px&font_family=arial"
+        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=522251p370"
         
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
             response = await client.get(url)
             response.raise_for_status()
             
+            if not response.text:
+                logger.error("Empty response received from rashifal source")
+                return []
+            
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Find all rashifal rows
-            rashifal_rows = soup.select(".row")
+            # Find all rashifal rows - they are inside both columns
+            all_rows = soup.select(".row")
+            if not all_rows:
+                logger.error("No rashifal rows found in the page")
+                logger.debug(f"Page content: {response.text[:500]}...")
+                return []
             
-            # Extract date from the header
-            header_date = soup.select_one(".header_date iframe")
-            date_text = header_date["src"] if header_date else ""
-            # The date might be embedded in the iframe, we'll use today's date for simplicity
-            
-            for row in rashifal_rows:
+            for row in all_rows:
                 try:
-                    # Extract the rashifal name (contains both Nepali and English names)
+                    # Extract all required elements
                     name_elem = row.select_one(".rashifal_name")
-                    if not name_elem:
+                    prediction_elem = row.select_one(".rashifal_value")
+                    image_elem = row.select_one(".image img")
+                    
+                    if not all([name_elem, prediction_elem]):
+                        logger.warning("Missing required elements in rashifal row")
                         continue
                         
+                    # Parse name text which contains both Nepali and English names
                     name_text = name_elem.text.strip()
-                    
-                    # Parse the Nepali and English names
                     name_parts = name_text.split()
+                    
                     if len(name_parts) < 2:
+                        logger.warning(f"Invalid name format: {name_text}")
                         continue
                         
                     nepali_name = name_parts[0]  # First part is Nepali name
                     english_name = name_parts[1]  # Second part is English name
                     
-                    # Get our sign key from the Nepali name
-                    sign = NEPALI_TO_SIGN.get(nepali_name)
-                    if not sign:
-                        # Try to match by English name if Nepali name not found
-                        for s, info in ZODIAC_SIGNS.items():
-                            if info["english"].lower() == english_name.lower():
-                                sign = s
-                                break
-                                
+                    # Get sign key from the Nepali name
+                    sign = None
+                    for s, info in ZODIAC_SIGNS.items():
+                        if info['nepali'] == nepali_name or info['english'].lower() == english_name.lower():
+                            sign = s
+                            break
+                    
                     if not sign:
                         logger.warning(f"Could not map rashifal name to sign: {name_text}")
                         continue
                     
-                    # Extract the prediction text
-                    prediction_elem = row.select_one(".rashifal_value")
-                    prediction = prediction_elem.text.strip() if prediction_elem else "No prediction available"
+                    # Get prediction text
+                    prediction = prediction_elem.text.strip()
                     
-                    # Get the image for potential extra data
-                    image_elem = row.select_one("img")
+                    # Get sign index from image src
+                    sign_index = ZODIAC_SIGNS[sign]['index']  # Default to predefined index
                     image_url = image_elem["src"] if image_elem else ""
                     
                     # Extract sign number from image URL if available
@@ -110,23 +114,39 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
                         "sign": sign,
                         "prediction": prediction,
                         "date": today,
-                        "prediction_english": None,  # We don't have English translation available
-                        "lucky_number": None,  # Not provided in this source
-                        "lucky_color": None,   # Not provided in this source
                         "nepali_name": nepali_name,
                         "english_name": english_name,
-                        "sign_index": sign_index
+                        "sign_index": sign_index,
+                        "prediction_english": None,
+                        "lucky_number": None,
+                        "lucky_color": None
                     }
                     
-                    # Save to database
-                    rashifal_crud.upsert(db=db, obj_in=rashifal_data)
-                    results.append(rashifal_data)
+                    try:
+                        saved_data = rashifal_crud.upsert(db=db, obj_in=rashifal_data)
+                        if saved_data:
+                            results.append(rashifal_data)
+                            logger.info(f"Successfully saved rashifal for {sign}")
+                        else:
+                            logger.error(f"Failed to save rashifal for {sign}")
+                    except Exception as e:
+                        logger.error(f"Database error while saving rashifal for {sign}: {str(e)}")
+                        continue
                     
                 except Exception as e:
                     logger.warning(f"Error parsing rashifal row: {str(e)}")
+                    continue
             
-        return results
+            if not results:
+                logger.error("No rashifal data was successfully scraped and saved")
+            else:
+                logger.info(f"Successfully scraped and saved {len(results)} rashifal entries")
+            
+            return results
     
+    except httpx.HTTPError as e:
+        logger.error(f"HTTP error while scraping rashifal: {str(e)}")
+        return []
     except Exception as e:
-        logger.error(f"Error scraping rashifal: {str(e)}")
+        logger.error(f"Unexpected error while scraping rashifal: {str(e)}")
         return []
