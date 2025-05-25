@@ -43,12 +43,33 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
     today = datetime.now().strftime("%Y-%m-%d")
     
     try:
-        # Using ashesh.com.np as the source
-        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=522251p370"
+        # Using hamropatro.com as the source
+        url = "https://www.hamropatro.com/rashifal"
+        
+        # Set up headers to mimic a browser request
+        headers = {
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Accept-Encoding": "gzip, deflate, br",
+            "Connection": "keep-alive",
+            "Upgrade-Insecure-Requests": "1",
+            "Cache-Control": "max-age=0"
+        }
         
         async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
-            response = await client.get(url)
-            response.raise_for_status()
+            try:
+                response = await client.get(url, headers=headers)
+                response.raise_for_status()
+            except httpx.TimeoutException:
+                logger.error("Request timed out while fetching rashifal")
+                return []
+            except httpx.HTTPStatusError as e:
+                logger.error(f"HTTP error {e.response.status_code} while fetching rashifal")
+                return []
+            except Exception as e:
+                logger.error(f"Error fetching rashifal: {str(e)}")
+                return []
             
             if not response.text:
                 logger.error("Empty response received from rashifal source")
@@ -56,43 +77,48 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
             
             soup = BeautifulSoup(response.text, "html.parser")
             
-            # Find all rashifal rows - they are inside both columns
-            columns = soup.select(".column")
-            if not columns:
-                logger.error("No columns found in the rashifal page")
+            # The rashifal data is in a table structure
+            table = soup.select_one("table")
+            if not table:
+                logger.error("No table found in the page")
                 logger.debug(f"Page content: {response.text[:500]}...")
                 return []
                 
-            rashifal_rows = []
-            for column in columns:
-                rows = column.select(".row")
-                rashifal_rows.extend(rows)
-            
+            # Find all rows in the table
+            rashifal_rows = table.select("tr")
             if not rashifal_rows:
-                logger.error("No rashifal rows found in any column")
+                logger.error("No rashifal rows found in the table")
                 return []
                 
-            for row in rashifal_rows:
+            for row in rashifal_rows[1:]:  # Skip header row
                 try:
-                    # Extract all required elements
-                    name_elem = row.select_one(".rashifal_name")
-                    prediction_elem = row.select_one(".rashifal_value")
-                    image_elem = row.select_one(".image img")
+                    # Extract data from table cells
+                    cells = row.select("td")
+                    if len(cells) < 2:
+                        logger.warning("Row has insufficient cells")
+                        continue
+                        
+                    # First cell contains rashi name, second cell contains prediction
+                    name_elem = cells[0]
+                    prediction_elem = cells[1]
                     
                     if not all([name_elem, prediction_elem]):
                         logger.warning("Missing required elements in rashifal row")
                         continue
                         
-                    # Parse name text which contains both Nepali and English names
+                    # The name cell contains both Nepali and English names
                     name_text = name_elem.text.strip()
-                    name_parts = name_text.split()
                     
-                    if len(name_parts) < 2:
-                        logger.warning(f"Invalid name format: {name_text}")
+                    # Try to extract names using common patterns
+                    for s, info in ZODIAC_SIGNS.items():
+                        if info['nepali'] in name_text:
+                            nepali_name = info['nepali']
+                            english_name = info['english']
+                            sign = s
+                            break
+                    else:
+                        logger.warning(f"Could not identify rashi from: {name_text}")
                         continue
-                        
-                    nepali_name = name_parts[0]  # First part is Nepali name
-                    english_name = name_parts[1]  # Second part is English name
                     
                     # Get sign key from the Nepali name
                     sign = None
