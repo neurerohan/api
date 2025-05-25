@@ -1,1 +1,1 @@
-web: gunicorn -c gunicorn_config.py main:app
+web: bash render_start.sh

@@ -3,10 +3,12 @@ services:
     name: nepali-data-api
     env: python
     buildCommand: pip install -r requirements.txt
-    startCommand: gunicorn -c gunicorn_config.py main:app
+    startCommand: bash render_start.sh
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
+      - key: PORT
+        value: 10000
     healthCheckPath: /
     plan: free
     autoDeploy: true
