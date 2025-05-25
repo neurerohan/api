@@ -226,9 +226,14 @@ async def scrape_calendar(db: Session, year: int = None, month: int = None) -> L
         month_name = numbers_to_month_names.get(month, "Baishakh")
         url = f"https://www.ashesh.com.np/nepali-calendar/calendar.php?api=332256p082&year={year}&month={month_name}"
         
+        logger.info(f"Scraping calendar for {year}-{month} ({month_name})")
+        
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
             response.raise_for_status()
+            
+            # Log successful request
+            logger.info(f"Successfully fetched calendar data from {url}")
             
             soup = BeautifulSoup(response.text, "html.parser")
             
@@ -264,31 +269,103 @@ async def scrape_calendar(db: Session, year: int = None, month: int = None) -> L
             # Find all day cells in the calendar table
             day_cells = soup.select("#calendartable td")
             
-            for day_cell in day_cells:
-                try:
-                    # Check if this cell has a date (cells without dates are empty or have headers)
-                    date_np_elem = day_cell.select_one(".date_np")
-                    if not date_np_elem:
-                        continue
-                    
-                    # Extract Nepali day number
-                    nepali_day_str = date_np_elem.text.strip()
-                    # Convert Devanagari digits to Arabic
-                    nepali_day_arabic = ''.join([devanagari_to_arabic.get(c, c) for c in nepali_day_str])
-                    nepali_day = int(nepali_day_arabic)
-                    
-                    # Extract English date
-                    date_en_elem = day_cell.select_one(".date_en")
-                    english_day = date_en_elem.text.strip() if date_en_elem else ""
-                    
-                    # Extract events
-                    event_one_elem = day_cell.select_one(".event_one")
-                    rotate_left_elem = day_cell.select_one(".rotate_left")
-                    rotate_right_elem = day_cell.select_one(".rotate_right")
-                    
-                    events = []
-                    if event_one_elem and event_one_elem.text.strip() != "\xa0":
-                        events.append(event_one_elem.text.strip())
+            for i in range(0, len(day_cells), 7):
+                for j in range(7):
+                    try:
+                        # Extract day number and tithi/event if available
+                        day_cell = day_cells[i + j]
+                        day_content = day_cell.select_one(".npd")
+                        
+                        if not day_content:
+                            continue
+                            
+                        day_num = day_content.text.strip()
+                        
+                        if not day_num.isdigit():
+                            continue
+                            
+                        day_num = int(day_num)
+                        
+                        # Extract tithi and event information if available
+                        tithi_elem = day_cell.select_one(".lunar_day")
+                        event_elem = day_cell.select_one(".event_title")
+                        
+                        tithi = tithi_elem.text.strip() if tithi_elem else ""
+                        event = event_elem.text.strip() if event_elem else ""
+                        
+                        # Extract events
+                        event_one_elem = day_cell.select_one(".event_one")
+                        rotate_left_elem = day_cell.select_one(".rotate_left")
+                        rotate_right_elem = day_cell.select_one(".rotate_right")
+                        
+                        events = []
+                        if event_one_elem and event_one_elem.text.strip() != "\xa0":
+                            events.append(event_one_elem.text.strip())
+                        if rotate_left_elem and rotate_left_elem.text.strip():
+                            events.append(rotate_left_elem.text.strip())
+                        if rotate_right_elem and rotate_right_elem.text.strip():
+                            events.append(rotate_right_elem.text.strip())
+                        
+                        event = ", ".join([e for e in events if e])
+                        
+                        # Determine if it's a holiday - Saturdays and days with special style
+                        is_holiday = "color:#FF4D00" in day_cell.get("style", "") or \
+                                   day_cell.get("style", "") == "color:#FF4D00" or \
+                                   "style='color: #FF4D00'" in str(day_content) or \
+                                   "style='color:#FF4D00'" in str(tithi_elem)
+                        
+                        # Get weekday based on the table column (0-indexed, where 0 = Sunday)
+                        weekday_map = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
+                        
+                        # Try to determine the weekday based on column position
+                        weekday_index = j
+                        english_weekday = weekday_map[weekday_index] if 0 <= weekday_index < len(weekday_map) else ""
+                        nepali_weekday = [k for k, v in NEPALI_WEEKDAYS.items() if v == english_weekday][0] if english_weekday in NEPALI_WEEKDAYS.values() else ""
+                        
+                        # Format dates properly
+                        nepali_date = f"{nepali_year}-{nepali_month:02d}-{day_num:02d}"
+                        
+                        # Parse English month/year format (e.g., "MAY-JUN 2025")
+                        english_month = ""
+                        english_year = ""
+                        if english_month_year:
+                            # Format is like "MAY-JUN 2025"
+                            if "-" in english_month_year and " " in english_month_year:
+                                english_year = english_month_year.split()[-1]
+                                english_months = english_month_year.split()[0]
+                                english_month = english_months.split("-")[0] if "-" in english_months else english_months
+                        
+                        # Construct a proper English date string
+                        month_name_to_num = {
+                            "JAN": 1, "FEB": 2, "MAR": 3, "APR": 4, "MAY": 5, "JUN": 6,
+                            "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "NOV": 11, "DEC": 12
+                        }
+                        english_month_num = month_name_to_num.get(english_month, 1)
+                        full_english_date = f"{english_month} {day_num}, {english_year}"
+                        
+                        # Extract panchang - combine tithi with events as there's no specific panchang section
+                        panchang = f"पञ्चाङ्ग: {tithi}" if tithi else ""
+                        
+                        calendar_data = {
+                            "year": nepali_year,
+                            "month": nepali_month,
+                            "day": day_num,
+                            "nepali_date": nepali_date,
+                            "english_date": full_english_date,
+                            "weekday": english_weekday,
+                            "nepali_weekday": nepali_weekday,
+                            "is_holiday": is_holiday,
+                            "event": event,
+                            "tithi": tithi,
+                            "panchang": panchang
+                        }
+                        
+                        # Save to database
+                        calendar_crud.upsert(db=db, obj_in=calendar_data)
+                        results.append(calendar_data)
+                        
+                    except (ValueError, AttributeError) as e:
+                        logger.warning(f"Error parsing day cell: {str(e)}")
                     if rotate_left_elem and rotate_left_elem.text.strip():
                         events.append(rotate_left_elem.text.strip())
                     if rotate_right_elem and rotate_right_elem.text.strip():

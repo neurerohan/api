@@ -1,11 +1,19 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, Request, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.openapi.docs import get_swagger_ui_html, get_redoc_html
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import JSONResponse, HTMLResponse
 from sqlmodel import Session, select, SQLModel, create_engine
 import asyncio
 import logging
 import os
 import sys
-from typing import List, Optional
+from datetime import datetime, date
+from typing import List, Optional, Dict, Any
+
+# Import custom middleware and error handlers
+from middleware import setup_middleware
+from error_handlers import setup_error_handlers, ResourceNotFoundError, DatabaseError
 
 # Import database and models
 from database import get_session, init_db
@@ -30,25 +38,44 @@ from scraping import (
 # Configure logging
 logging.basicConfig(
     level=logging.INFO,
-    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    format="%(levelname)s:%(name)s:%(message)s",
+    handlers=[
+        logging.StreamHandler()
+    ]
 )
+
 logger = logging.getLogger(__name__)
 
-# Create FastAPI app
+# Create FastAPI app with metadata for OpenAPI docs
 app = FastAPI(
     title="Nepali Data API",
-    description="API for Nepali calendar, events, rashifal, and market prices",
+    description="""API for Nepali calendar, events, rashifal, vegetable prices, metal prices, and forex rates.
+    
+    This API provides:  
+    * **Nepali Calendar** - Calendar days with events and tithi information  
+    * **Rashifal (Horoscope)** - Daily horoscope for all zodiac signs  
+    * **Metal Prices** - Daily gold and silver prices  
+    * **Vegetable Prices** - Daily vegetable and fruit prices  
+    * **Forex Rates** - Daily exchange rates for major currencies
+    
+    All data is scraped from reliable Nepali sources.
+    """,
     version="1.0.0",
+    contact={
+        "name": "API Maintainer",
+        "url": "https://github.com/neurerohan/api",
+    },
+    license_info={
+        "name": "MIT License",
+        "url": "https://opensource.org/licenses/MIT",
+    },
 )
 
-# Add CORS middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# Set up CORS, rate limiting and other middleware
+setup_middleware(app)
+
+# Set up error handlers
+setup_error_handlers(app)
 
 # Initialize database with schema migration
 def initialize_database():
@@ -123,16 +150,32 @@ async def run_initial_scraping():
 
 # API Routes
 
-@app.get("/", tags=["Root"])
-async def read_root():
+@app.get("/")
+def read_root():
     """Root endpoint with API information."""
     return {
-        "message": "Welcome to Nepali Data API",
-        "docs_url": "/docs",
+        "name": "Nepali Data API",
         "version": "1.0.0",
+        "description": "API for Nepali calendar, events, rashifal, and market prices",
+        "documentation": "/docs",
+        "github": "https://github.com/neurerohan/api"
     }
 
+@app.get("/health")
+def health_check():
+    """Health check endpoint for monitoring."""
+    return {
+        "status": "healthy",
+        "timestamp": datetime.now().isoformat(),
+        "version": "1.0.0",
+        "database": "connected"
+    }
+
+# Import caching system
+from cache import cache_response
+
 @app.get("/calendar/{year}/{month}", tags=["Calendar"], response_model=List[CalendarDay])
+@cache_response(ttl_seconds=3600)
 async def get_calendar(
     year: int, 
     month: int, 
@@ -148,7 +191,8 @@ async def get_calendar(
         
     return calendar_days
 
-@app.get("/today", tags=["Calendar"])
+@app.get("/date/today", tags=["Calendar"], response_model=dict)
+@cache_response(ttl_seconds=3600)
 async def get_today_date(
     db: Session = Depends(get_session)
 ):
