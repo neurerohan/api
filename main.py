@@ -275,31 +275,48 @@ async def trigger_scrape(api_key: str = None):
     Args:
         api_key: Optional API key for security (can be configured in production)
     """
+    from datetime import datetime
+    import logging
+    logger = logging.getLogger(__name__)
+    
     # In production, you should add proper API key validation
     # if api_key != "your_secret_api_key":
     #     raise HTTPException(status_code=403, detail="Invalid API key")
     
     try:
-        db = Session(next(get_session()))
+        # Get database session using context manager
+        from database import get_db_context
+        with get_db_context() as db:
         
-        # Run scraping tasks for daily changing data
-        await scrape_rashifal(db)
-        await scrape_vegetables(db)
-        await scrape_metals(db)
-        await scrape_forex(db)
-        await scrape_panchang(db)  # Get today's panchang information
-        
-        # For a monthly job, you could add this logic
-        # now = datetime.now()
-        # if now.day == 1:  # First day of month, scrape the new month's calendar
-        #     next_month = now + timedelta(days=32)
-        #     next_month = datetime(next_month.year, next_month.month, 1)  # First day of next month
-        #     await scrape_calendar(db, year=next_month.year, month=next_month.month)
-        
-        return {"status": "success", "message": "Data scraping completed successfully", "timestamp": datetime.now().isoformat()}
+            # Run scraping tasks for daily changing data
+            start_time = datetime.now()
+            logger.info(f"Starting scheduled scraping at {start_time}")
+            
+            results = {}
+            for scraper in [scrape_rashifal, scrape_metals, scrape_vegetables, scrape_forex, scrape_events]:
+                try:
+                    await scraper(db)
+                    results[scraper.__name__] = "success"
+                except Exception as e:
+                    error_msg = f"Error in {scraper.__name__}: {str(e)}"
+                    logger.error(error_msg)
+                    results[scraper.__name__] = f"error: {str(e)}"
+            
+            end_time = datetime.now()
+            duration = (end_time - start_time).total_seconds()
+            logger.info(f"Completed scheduled scraping in {duration} seconds")
+            
+            return {
+                "status": "completed",
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat(),
+                "duration_seconds": duration,
+                "results": results
+            }
     except Exception as e:
-        logger.error(f"Error in cron-triggered scraping: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error in data scraping: {str(e)}")
+        error_msg = f"Critical error in scheduled scraping: {str(e)}"
+        logger.error(error_msg)
+        raise HTTPException(status_code=500, detail=error_msg)
 
 
 if __name__ == "__main__":
