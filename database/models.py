@@ -81,9 +81,9 @@ class VegetablePrice(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     name: str
     nepali_name: Optional[str] = None
-    min_price: float
-    max_price: float
-    avg_price: float
+    min_price: Optional[float] = None
+    max_price: Optional[float] = None
+    avg_price: Optional[float] = None
     unit: str  # kg, piece, etc.
     date: str
     image_url: Optional[str] = None  # URL to the vegetable/fruit image

@@ -185,42 +185,60 @@ async def get_events(
         
     return events
 
-@app.get("/rashifal/{sign}", tags=["Rashifal"], response_model=Rashifal)
-async def get_rashifal(
-    sign: str, 
-    db: Session = Depends(get_session)
-):
+@app.get("/rashifal/{sign}", tags=["Rashifal"])
+async def get_rashifal(sign: str):
     """Get latest rashifal for a specific zodiac sign."""
+    import logging
+    logger = logging.getLogger(__name__)
+    
     try:
-        # Normalize the sign parameter - convert to lowercase
-        sign = sign.lower().strip()
-        
-        # Check if the sign is valid
+        # Validate sign
         from scraping.rashifal import ZODIAC_SIGNS
         if sign not in ZODIAC_SIGNS:
-            raise HTTPException(status_code=400, detail=f"Invalid zodiac sign: '{sign}'. Valid signs are: {', '.join(ZODIAC_SIGNS.keys())}")
+            valid_signs = ", ".join(sorted(ZODIAC_SIGNS.keys()))
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Invalid zodiac sign: {sign}. Valid signs are: {valid_signs}"
+            )
         
-        # Try to get rashifal from database
-        rashifal = rashifal_crud.get_by_sign(db=db, sign=sign)
-        
-        if not rashifal:
-            # If no data found, try to scrape it
-            logger.info(f"No rashifal found for {sign}, attempting to scrape fresh data")
-            await scrape_rashifal(db)
+        # Get from database using context manager
+        from database import get_db_context
+        with get_db_context() as db:
+            # Try to get from database first
             rashifal = rashifal_crud.get_by_sign(db=db, sign=sign)
             
             if not rashifal:
-                raise HTTPException(status_code=404, detail=f"Rashifal for sign '{sign}' not found after scraping")
-        
-        return rashifal
+                logger.info(f"Rashifal not found in database for sign '{sign}', attempting to scrape fresh data")
+                # Try to scrape fresh data
+                scraped_data = await scrape_rashifal(db)
+                
+                if not scraped_data:
+                    logger.error(f"Failed to scrape rashifal data for sign '{sign}'")
+                    raise HTTPException(
+                        status_code=503, 
+                        detail=f"Unable to fetch rashifal data from source. Please try again later."
+                    )
+                
+                # Try to get the data again after scraping
+                rashifal = rashifal_crud.get_by_sign(db=db, sign=sign)
+                
+                if not rashifal:
+                    logger.error(f"Rashifal still not found after scraping for sign '{sign}'")
+                    raise HTTPException(
+                        status_code=404, 
+                        detail=f"Rashifal for sign '{sign}' not found even after scraping fresh data"
+                    )
+            
+            return rashifal
+            
     except HTTPException:
-        # Re-raise HTTP exceptions
         raise
     except Exception as e:
-        # Log the error and return a 500 with helpful message
-        logger.error(f"Error retrieving rashifal for {sign}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Error retrieving rashifal: {str(e)}")
-
+        logger.error(f"Unexpected error in get_rashifal: {str(e)}")
+        raise HTTPException(
+            status_code=500, 
+            detail=f"An unexpected error occurred while fetching rashifal data: {str(e)}"
+        )
 
 @app.get("/prices/vegetables", tags=["Prices"], response_model=List[VegetablePrice])
 async def get_vegetable_prices(

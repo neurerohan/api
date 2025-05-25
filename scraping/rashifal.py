@@ -44,7 +44,8 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
     
     try:
         # Using ashesh.com.np as the source
-        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=332257p096"
+        # Use a more reliable widget URL
+        url = "https://www.ashesh.com.np/rashifal/widget.php?header_title=Nepali%20Rashifal&header_color=f0b03f&api=332257p096&header_size=20px&font_color=333333&font_size=14px&line_height=26px&font_family=arial"
         
         async with httpx.AsyncClient(timeout=30.0) as client:
             response = await client.get(url)
