@@ -38,59 +38,89 @@ class Scheduler:
         self, 
         task_func: Callable[[Session], Coroutine[Any, Any, List[Dict]]], 
         name: str,
-        interval_hours: float = 24.0
+        interval_hours: float = 24.0,
+        run_immediately: bool = True
     ) -> None:
-        """Schedule a task to run at specified intervals."""
-        while self.running:
+        """Schedule a task to run at specified intervals.
+        
+        For daily changing data like rashifal and prices, we'll rely on the cron job endpoint
+        that will be triggered by cron-job.org every 8 hours.
+        
+        For calendar data, we'll keep a backup scheduler with longer intervals.
+        """
+        # Optionally skip the immediate run for tasks that will be handled by cron jobs
+        if run_immediately:
             await self.run_scraping_task(task_func, name)
+            
+        # Continue with the scheduled interval
+        while self.running:
             # Wait for the specified interval
             await asyncio.sleep(interval_hours * 3600)
+            await self.run_scraping_task(task_func, name)
     
     async def start(self) -> None:
-        """Start the scheduler."""
+        """Start the scheduler.
+        
+        Note: Daily data scraping (rashifal, metals, vegetables, etc.) will primarily be handled
+        by the external cron job that calls the /cron/scrape endpoint every 8 hours.
+        
+        This scheduler is configured as a backup with longer intervals for redundancy.
+        """
         self.running = True
         
-        # Schedule all scraping tasks
+        # Schedule daily data tasks with reduced frequency (48 hours) as backup
+        # These will primarily be handled by the cron job every 8 hours
+        # Set run_immediately=False since the initial scraping happens in run_initial_scraping()
         self.tasks["rashifal"] = asyncio.create_task(
-            self.schedule_task(scrape_rashifal, "rashifal")
+            self.schedule_task(scrape_rashifal, "rashifal", interval_hours=48.0, run_immediately=False)
         )
         self.tasks["vegetables"] = asyncio.create_task(
-            self.schedule_task(scrape_vegetables, "vegetables")
+            self.schedule_task(scrape_vegetables, "vegetables", interval_hours=48.0, run_immediately=False)
         )
         self.tasks["metals"] = asyncio.create_task(
-            self.schedule_task(scrape_metals, "metals")
+            self.schedule_task(scrape_metals, "metals", interval_hours=48.0, run_immediately=False)
         )
         self.tasks["forex"] = asyncio.create_task(
-            self.schedule_task(scrape_forex, "forex")
+            self.schedule_task(scrape_forex, "forex", interval_hours=48.0, run_immediately=False)
+        )
+        self.tasks["panchang"] = asyncio.create_task(
+            self.schedule_task(scrape_panchang, "panchang", interval_hours=48.0, run_immediately=False)
         )
         
-        # Calendar and events need year/month parameters
+        # Calendar and events are scheduled less frequently
         # For calendar, we'll scrape the current month and the next month
         now = datetime.now()
+        
+        # Current month calendar (every 7 days to catch updates)
         self.tasks["calendar_current"] = asyncio.create_task(
             self.schedule_task(
                 partial(scrape_calendar, year=now.year, month=now.month),
-                "calendar_current"
+                "calendar_current",
+                interval_hours=168.0  # 7 days
             )
         )
         
+        # Next month's calendar (scrape at the beginning of each month)
         next_month = now + timedelta(days=31)
+        next_month = datetime(next_month.year, next_month.month, 1)  # First day of next month
         self.tasks["calendar_next"] = asyncio.create_task(
             self.schedule_task(
                 partial(scrape_calendar, year=next_month.year, month=next_month.month),
-                "calendar_next"
+                "calendar_next",
+                interval_hours=168.0  # 7 days
             )
         )
         
-        # For events, we'll scrape the current year
+        # Events for the current year (monthly check for updates)
         self.tasks["events"] = asyncio.create_task(
             self.schedule_task(
                 partial(scrape_events, year=now.year),
-                "events"
+                "events",
+                interval_hours=720.0  # 30 days
             )
         )
         
-        logger.info("Scheduler started successfully")
+        logger.info("Scheduler started successfully - daily data will be primarily updated by cron job")
     
     async def stop(self) -> None:
         """Stop the scheduler."""

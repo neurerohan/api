@@ -217,6 +217,43 @@ async def get_forex_rates(
     return rates
 
 
+@app.get("/cron/scrape", tags=["Admin"])
+async def trigger_scrape(api_key: str = None):
+    """Endpoint for external cron job to trigger data scraping.
+    
+    This endpoint is designed to be called by cron-job.org to trigger scraping every 8 hours.
+    It will scrape all daily changing data like rashifal, metals, vegetables, etc.
+    
+    Args:
+        api_key: Optional API key for security (can be configured in production)
+    """
+    # In production, you should add proper API key validation
+    # if api_key != "your_secret_api_key":
+    #     raise HTTPException(status_code=403, detail="Invalid API key")
+    
+    try:
+        db = Session(next(get_session()))
+        
+        # Run scraping tasks for daily changing data
+        await scrape_rashifal(db)
+        await scrape_vegetables(db)
+        await scrape_metals(db)
+        await scrape_forex(db)
+        await scrape_panchang(db)  # Get today's panchang information
+        
+        # For a monthly job, you could add this logic
+        # now = datetime.now()
+        # if now.day == 1:  # First day of month, scrape the new month's calendar
+        #     next_month = now + timedelta(days=32)
+        #     next_month = datetime(next_month.year, next_month.month, 1)  # First day of next month
+        #     await scrape_calendar(db, year=next_month.year, month=next_month.month)
+        
+        return {"status": "success", "message": "Data scraping completed successfully", "timestamp": datetime.now().isoformat()}
+    except Exception as e:
+        logger.error(f"Error in cron-triggered scraping: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"Error in data scraping: {str(e)}")
+
+
 if __name__ == "__main__":
     import uvicorn
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
