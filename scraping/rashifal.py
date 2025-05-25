@@ -57,18 +57,10 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
             soup = BeautifulSoup(response.text, "html.parser")
             
             # Find all rashifal rows - they are inside both columns
-<<<<<<< HEAD
-            all_rows = soup.select(".row")
-            if not all_rows:
-                logger.error("No rashifal rows found in the page")
-                logger.debug(f"Page content: {response.text[:500]}...")
-                return []
-            
-            for row in all_rows:
-=======
             columns = soup.select(".column")
             if not columns:
                 logger.error("No columns found in the rashifal page")
+                logger.debug(f"Page content: {response.text[:500]}...")
                 return []
                 
             rashifal_rows = []
@@ -76,8 +68,11 @@ async def scrape_rashifal(db: Session) -> List[Dict]:
                 rows = column.select(".row")
                 rashifal_rows.extend(rows)
             
+            if not rashifal_rows:
+                logger.error("No rashifal rows found in any column")
+                return []
+                
             for row in rashifal_rows:
->>>>>>> a1c3d75c8607ba89f4a4458988ca246a803eaa8d
                 try:
                     # Extract all required elements
                     name_elem = row.select_one(".rashifal_name")
