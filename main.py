@@ -11,6 +11,7 @@ from database.models import (
     CalendarDay, Event, Rashifal, 
     MetalPrice, ForexRate, VegetablePrice
 )
+from database.migrations import ensure_schema_up_to_date
 from database.crud import (
     calendar_crud, event_crud, rashifal_crud,
     metal_price_crud, forex_rate_crud, vegetable_price_crud
@@ -47,21 +48,46 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize database and start scheduler
+# Initialize database with schema migration
+def initialize_database():
+    """Initialize the database with all models."""
+    database_url = "sqlite:///nepali_data.db"
+    logger.info(f"Initializing database at {database_url}")
+    engine = create_engine(database_url)
+    SQLModel.metadata.create_all(engine)
+    
+    # Ensure database schema is up to date with all columns
+    ensure_schema_up_to_date(database_url)
+    
+    return database_url
+
+# Start app
 @app.on_event("startup")
 async def startup_event():
     # Initialize database
-    init_db()
+    initialize_database()
     logger.info("Database initialized")
     
     # Start initial data scraping
     logger.info("Starting initial data scraping")
-    background_tasks = BackgroundTasks()
-    background_tasks.add_task(run_initial_scraping)
+    await run_initial_scraping()
     
     # Start scheduler
-    asyncio.create_task(scheduler.start())
     logger.info("Scheduler started")
+    scheduler.start()
+
+    # For Render deployment - bind to 0.0.0.0 explicitly
+    import socket
+    sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    try:
+        # Explicitly bind to 0.0.0.0 with port from environment
+        port = int(os.environ.get("PORT", 8000))
+        sock.bind(("0.0.0.0", port))
+        logger.info(f"Successfully bound to 0.0.0.0:{port}")
+    except Exception as e:
+        logger.error(f"Error binding to port: {e}")
+    finally:
+        sock.close()
 
 @app.on_event("shutdown")
 async def shutdown_event():
