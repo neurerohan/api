@@ -2,8 +2,9 @@ services:
   - type: web
     name: nepali-data-api
     env: python
+    runtime: python
     buildCommand: pip install -r requirements.txt
-    startCommand: bash render_start.sh
+    startCommand: python render.py
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.11
@@ -12,6 +13,3 @@ services:
     healthCheckPath: /
     plan: free
     autoDeploy: true
-    scaling:
-      minInstances: 1
-      maxInstances: 1

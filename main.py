@@ -3,6 +3,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlmodel import Session, select, SQLModel, create_engine
 import asyncio
 import logging
+import os
+import sys
 from typing import List, Optional
 
 # Import database and models
@@ -74,7 +76,7 @@ async def startup_event():
     
     # Start scheduler
     logger.info("Scheduler started")
-    scheduler.start()
+    asyncio.create_task(scheduler.start())
 
     # For Render deployment - bind to 0.0.0.0 explicitly
     import socket
